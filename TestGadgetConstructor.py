@@ -1,6 +1,7 @@
 import random
 import time
-
+import sys
+import os
 # Generated instructions are stored in these lists to later get written on the appropriate files
 #######################################################
 now = []
@@ -59,24 +60,25 @@ def Create_Enc(start_addr = "0x80480000", size = "0x4000", utm_addr = "0x8048800
                untrusted_ptr = "0x80488000", untrusted_size = "0x2000", eid_ptr = "0x80475000"):
     # setup enclave properties
     line =  "void setup_enclave_args()\n" + "{\n"
-    line += "argoman.epm_region.paddr = " + start_addr + ";\n"
-    line += "argoman.epm_region.size = " + size + ";\n"
-    line += "argoman.utm_region.paddr = " + utm_addr + ";\n"
-    line += "argoman.utm_region.size = " + utm_size + ";\n"
-    line += "argoman.runtime_paddr = " + runtime_addr + ";\n"
-    line += "argoman.user_paddr = " + user_addr + ";\n"
-    line += "argoman.free_paddr = " + free_addr + ";\n"
-    line += "argoman.params.runtime_entry = " + runtime_entry + ";\n"
-    line += "argoman.params.user_entry = " + user_entry + ";\n"
-    line += "argoman.params.untrusted_ptr = " + untrusted_ptr + ";\n"
-    line += "argoman.params.untrusted_size = " + untrusted_size + ";\n"
-    line += "argoman.eid_pptr = (unsigned int *)" + eid_ptr + ";\n"
+    line += "TEESec_enclave.epm_region.paddr = " + start_addr + ";\n"
+    line += "TEESec_enclave.epm_region.size = " + size + ";\n"
+    line += "TEESec_enclave.utm_region.paddr = " + utm_addr + ";\n"
+    line += "TEESec_enclave.utm_region.size = " + utm_size + ";\n"
+    line += "TEESec_enclave.runtime_paddr = " + runtime_addr + ";\n"
+    line += "TEESec_enclave.user_paddr = " + user_addr + ";\n"
+    line += "TEESec_enclave.free_paddr = " + free_addr + ";\n"
+    line += "TEESec_enclave.params.runtime_entry = " + runtime_entry + ";\n"
+    line += "TEESec_enclave.params.user_entry = " + user_entry + ";\n"
+    line += "TEESec_enclave.params.untrusted_ptr = " + untrusted_ptr + ";\n"
+    line += "TEESec_enclave.params.untrusted_size = " + untrusted_size + ";\n"
+    line += "TEESec_enclave.eid_pptr = (unsigned int *)" + eid_ptr + ";\n"
     line += "}"
+    enclave_args.append(line)
 
     # send create enclave signal to SM
     line = "# Setup enclave arguments\n"
     line += "jal setup_enclave_args\n"
-    line += "la a0, argoman\n"
+    line += "la a0, TEESec_enclave\n"
     line += "li a7, SBI_SM_CREATE_ENCLAVE\n"
     line += "ecall\n"
     host_supervisor.append(line)
@@ -110,7 +112,7 @@ def Exe_Enc(eid_ptr = 0x80475000):
 
 def Stop_Enc():
     # This is already hard-coded at "Setup_Enc"
- 
+    return
 
 # Helper Gadgets
 #######################################################
@@ -712,9 +714,12 @@ list_snapshots.append(snapshot)
 
 # Access Gadgets
 #######################################################
-def Exp_Acc_Enc_L1(secret_addr = "0x80580020"):
-    Fill_Enc_Mem()
-    Create_Enc()
+def Exp_Acc_Enc_L1(secret_addr = "0x80580020", secret_value = "0xdeadbeef"):
+    Fill_Enc_Mem(secret = secret_value)
+    Create_Enc(start_addr = "0x80580000", size = "0x500", utm_addr = "0x80588000",
+               utm_size = "0x100", runtime_addr = "0x80580000", user_addr = "0x80580100", 
+               free_addr = "0x80580200", runtime_entry = "0x80580000", user_entry = "0x80580100",
+               untrusted_ptr = "0x80588000", untrusted_size = "0x100", eid_ptr = "0x80575000")
     PK_VM_Init()
     # access the enclave secret data
     line = "# Reading enclave memory\n"
@@ -723,13 +728,12 @@ def Exp_Acc_Enc_L1(secret_addr = "0x80580020"):
     line += "li a4, 0x44444444\n"
     line += "li a7, 0x77777777\n"
     line += "divw x5, a7, a4\n"
-    line += "divw a4, a7, x5\n
+    line += "divw a4, a7, x5\n"
     line += "bne a4, a6, next\n"
     line += "ld a6, 0(a6)\n"
     line += "next:\n"
     host_supervisor.append(line)
-    #Exe_Enc()
-    #Enc_to_L1()
+    
     
 
 
@@ -1266,81 +1270,138 @@ def specwindowclose(label):
 #######################################################
 # Main
 #######################################################
-main_lengh = len(list_main_gadgets)
-# Number of gadgets we are going to use
-num_gadgets = 10
-for i in range(num_gadgets):
-    gadget_selector = random.randrange(main_lengh)
-    included_main_gadgets.append(list_main_gadgets[gadget_selector])
-# how many of these gadgets are going to be executed speculatively
-# (This means there should be branch wrapped around these gadgets)
-counter = 0
-for entry in included_main_gadgets:
-    if entry == "Meltdown-US":
-        meltdown_us()
-    elif entry == "Meltdown-JP":
-        meltdown_jp()
-    elif entry == "Fill-Up-User-Pages":
-        fill_up_user_pages()
-    elif entry == "Prime-LFB":
-        prime_lfb()
-    elif entry == "RandomInst":
-        randominst()
-    elif entry == "St/Ld Forwarding":
-        numofcalls = random.randrange(4)
-        for i in range(numofcalls):
+def generate_tests(): 
+    # Test Gadget Constructor Scripts
+    print("Preparing dummy_entry.S for host setup/helper/access gadgets! ----------------> Started!")
+    lines = []
+    index = 0
+    with open('./riscv-pk-TEESec/dummy_payload/dummy_entry.S', 'r') as file:
+        lines = file.readlines()
+        for line in lines:
+            if line.strip("\n") == "# Fuzzer_Added_Code_Start":
+                index_start = lines.index(line)
+            if line.strip("\n") == "# Fuzzer_Added_Code_End":
+                index_end = lines.index(line)
+    list_before = [lines[i] for i in range(index_start+1)]
+    list_after = [lines[i] for i in range(index_end, len(lines))]
+    list_final = list_before + host_supervisor + list_after
+    with open('./riscv-pk-TEESec/dummy_payload/dummy_entry.S', 'w') as file:
+        file.writelines(list_final)
+    print("Preparing dummy_entry.S for host setup/helper/access gadgets! ----------------> Successful!")
+    print()
+
+
+    print("Preparing enclave_args.c to setup enclave arguments! ----------------> Started!")
+    lines = []
+    index = 0
+    with open('./riscv-pk-TEESec/dummy_payload/enclave_args.c', 'r') as file:
+        lines = file.readlines()
+        for line in lines:
+            if line.strip("\n") == "//Fuzzer_Added_Code_Start":
+                index_start = lines.index(line)
+            if line.strip("\n") == "//Fuzzer_Added_Code_End":
+                index_end = lines.index(line)
+    list_before = [lines[i] for i in range(index_start+1)]
+    list_after = [lines[i] for i in range(index_end, len(lines))]
+    list_final = list_before + enclave_args + list_after
+    with open('./riscv-pk-TEESec/dummy_payload/enclave_args.c', 'w') as file:
+        file.writelines(list_final)
+    print("Preparing enclave_args.c to setup enclave arguments! ----------------> Successful!")
+    print()
+
+def fuzz():
+    main_lengh = len(list_main_gadgets)
+    # Number of gadgets we are going to use
+    num_gadgets = 10
+    for i in range(num_gadgets):
+        gadget_selector = random.randrange(main_lengh)
+        included_main_gadgets.append(list_main_gadgets[gadget_selector])
+    # how many of these gadgets are going to be executed speculatively
+    # (This means there should be branch wrapped around these gadgets)
+    counter = 0
+    for entry in included_main_gadgets:
+        if entry == "Meltdown-US":
+            meltdown_us()
+        elif entry == "Meltdown-JP":
+            meltdown_jp()
+        elif entry == "Fill-Up-User-Pages":
+            fill_up_user_pages()
+        elif entry == "Prime-LFB":
+            prime_lfb()
+        elif entry == "RandomInst":
+            randominst()
+        elif entry == "St/Ld Forwarding":
+            numofcalls = random.randrange(4)
+            for i in range(numofcalls):
+                st_ld_forwarding()
+        elif entry == "Play-Permission-Bits":
+            numofcalls = random.randrange(10)
+            for i in range(numofcalls):
+                play_with_permission_bits()
+        elif entry == "ShortDelay":
             st_ld_forwarding()
-    elif entry == "Play-Permission-Bits":
-        numofcalls = random.randrange(10)
-        for i in range(numofcalls):
-            play_with_permission_bits()
-    elif entry == "ShortDelay":
-        st_ld_forwarding()
-        shortdelay("Delay")
-    if entry == included_main_gadgets[len(included_main_gadgets) - 1] and specexec == True:
-        specwindowclose(speclabel)
-        specexec = False
+            shortdelay("Delay")
+        if entry == included_main_gadgets[len(included_main_gadgets) - 1] and specexec == True:
+            specwindowclose(speclabel)
+            specexec = False
+
+
+def compile_tests():
+    current_path = os.getcwd()
+    commands = "cd ./riscv-pk-TEESec && rm -rf build && mkdir build && cd ./build && ../configure --prefix=" + current_path + "/riscv-pk-install " + "--enable-sm " + "--host=riscv64-unknown-elf" +  " && make && make install && cd .."
+    print(commands)
+    test = os.system(commands)
+    binary_path = current_path + "/riscv-pk-install/riscv64-unknown-elf/bin/bbl"
+    print(binary_path)
+    print("The generated binary can be found at ", binary_path)
+    return binary_path
+
+
+def start_simulation(sim_path = "./BOOM_simulator", test_path = ""):    
+    print("Verilator RTL Simulation! ----------------> Started!")
+    commands = sim_path + " +verbose " + "--max-cycles=2700000 " + test_path + " 2>SimLog.txt"
+    test = os.system(commands)
+    print("Verilator RTL Simulation! ----------------> Successful!")
+    print()
+    print("The generated RTL simulation log is accessible at ", "SimLog.txt")
+       
+
+def main():
+    if len(sys.argv) < 3:
+        print("Please re-run the script by providing at least two arguments: [Access_Gadget] [Secret]")
+        return 1
+    access_gadget = sys.argv[1]
+    secret = sys.argv[2]
+    sim_path = ""
+    if len(sys.argv) == 4:
+        sim_path = sys.argv[3]
+
+    if access_gadget == "Exp_Enc_L1":
+        Exp_Acc_Enc_L1(secret_value = secret)
+        generate_tests()
+        test_path = compile_tests()
+        if not sim_path:
+            start_simulation(test_path = test_path)
+        else:
+            start_simulation(sim_path, test_path = test_path)
+    elif access_gadget == "NO_FUZZING":
+        compile_tests()
+    elif access_gadget == "FUZZ":
+        fuzz()
+    else:
+        print("Please provide valid access gadgets. Otherwise rerun with [FUZZ] as your first argument to generate targeted random  instructions.")
+
+if __name__ == "__main__":
+    main()
 
 
 
 
-# Test Gadget Constructor Scripts
-print("Preparing dummy_entry.S for host setup/helper/access gadgets! ----------------> Started!")
-lines = []
-index = 0
-with open('./riscv-pk-TEESec/dummy_payload/dummy_entry.S', 'r') as file:
-    lines = file.readlines()
-    for line in lines:
-        if line.strip("\n") == "//Fuzzer_Added_Code_Start":
-            index = lines.index(line)
-        if line.strip("\n") == "//Fuzzer_Added_Code_End":
-            index = lines.index(line)
-list_before = [lines[i] for i in range(index+1)]
-list_after = [lines[i] for i in range(index, len(lines))]
-list_final = list_before + host_supervisor + list_after
-with open('./riscv-pk-TEESec/dummy_payload/dummy_entry.S', 'w') as file:
-    file.writelines(list_final)
-print("Preparing dummy_entry.S for host setup gadgets! ----------------> Successful!")
-print()
 
 
-print("Preparing enclave_args.c to setup enclave arguments! ----------------> Started!")
-lines = []
-index = 0
-with open('./riscv-pk-TEESec/dummy_payload/enclave_args.c', 'r') as file:
-    lines = file.readlines()
-    for line in lines:
-        if line.strip("\n") == "//Fuzzer_Added_Code_Start":
-            index = lines.index(line)
-        if line.strip("\n") == "//Fuzzer_Added_Code_End":
-            index = lines.index(line)
-list_before = [lines[i] for i in range(index+1)]
-list_after = [lines[i] for i in range(index, len(lines))]
-list_final = list_before + enclave_args + list_after
-with open('./riscv-pk-TEESec/dummy_payload/enclave_args.c', 'w') as file:
-    file.writelines(list_final)
-print("Preparing enclave_args.c to setup enclave arguments! ----------------> Successful!")
-print()
+
+
+       
 
 
 
@@ -1350,6 +1411,7 @@ print()
 
 
 
+"""
 
 # Executive Scripts
 #####################################################################
@@ -1422,7 +1484,7 @@ for key, value in dict_label_secrets_pair.items():
 
 
 
-import os
+
 
 test = os.system("cd /home/ghaniyoun/ghan/chipyard/toolchains/riscv-tools/riscv-tests/ && make && make install")
 print("Verilator RTL Simulation! ----------------> Started!")
@@ -1432,181 +1494,12 @@ print("Verilator RTL Simulation! ----------------> Successful!")
 # print(main_lengh, list_main_gadgets[0], logical_register_file["x3"])
 #######################################################
 
+"""
 
 
 
 
 
-
-print("Analyzer! ----------------> Started!")
-
-
-
-
-
-
-
-
-### Check whether we have a user page secret. If not, we should add kernel default secrets to dict_label_secrets
-if not dict_label_secrets_pair:
-    dict_label_secrets_pair["Kernel Secrets"] = list_kernel_secrets
-# Analyzer (Beta Version)
-#####################################################################
-dict_label_PC = {}
-dict_PC_secrets = {}
-list_secrets_linenumber = []
-
-print("Creating Label-PC pairs!................")
-# Create Label-PC pairs
-with open('/home/ghaniyoun/ghan/chipyard/toolchains/riscv-tools/riscv-tests/isa/rv64ui-v-AddressFooler.dump', 'r') as file:
-    # read a list of lines into data
-    lines = file.readlines()
-    for line in lines:
-        if "Permission" in line:
-            space_separated = line.split(" ")
-            label = space_separated[1].strip("<>:\n")
-            dict_label_PC[label] = space_separated[0][11:]
-print("Extracting User Mode cycles from log file!................")
-# Extract User Mode instructions and write them in another file
-U_Mode_Merged = []
-inside = []
-with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/log2.txt', 'r') as file:
-    inside = file.readlines()
-    length_log = len(inside)
-    start_index = 0
-    mode_check = ["Mode:U"]
-    last_line = False
-    while not last_line:
-        for i in range(start_index, length_log):
-            if i == length_log - 1:
-                last_line = True
-            if len(mode_check) == 1:
-                if mode_check[0] in inside[i]:
-                    start_index = i
-                    mode_check = ["Mode:S", "Mode:M"]
-                    break
-            else:
-                if mode_check[1] in inside[i] or mode_check[0] in inside[i]:
-                    start_index = i
-                    mode_check = ["Mode:U"]
-                    break
-            if len(mode_check) == 2:
-                U_Mode_Merged.append(inside[i])
-
-with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/UMode.txt', 'w') as file:
-    file.writelines(U_Mode_Merged)
-print("Finished creating UMode.txt!")
-# Create dictionary of PC, user secret pairs
-if dict_label_PC:
-    for key, value in dict_label_secrets_pair.items():
-        PC = dict_label_PC[key]
-        secret_vals = [secret for secret in value if secret not in list_kernel_secrets]
-        dict_PC_secrets[PC] = secret_vals
-
-
-# This dictionary is responsible to hold key, value pairs consisting of 2 permission labels as keys, all lines containing
-# secrets as values
-dict_post_processing = {}
-
-
-def search_user_secrets():
-    lines = []
-    last_label = False
-    for key, value in dict_PC_secrets.items():
-        list_PC_secrets = list(dict_PC_secrets)
-        if list_PC_secrets.index(key) == (len(list_PC_secrets) - 1):
-            last_label = True
-        if last_label == False:
-            nextkey = list_PC_secrets[list_PC_secrets.index(key) + 1]
-            #print(key)
-            #print(nextkey)
-            PC_from = "Slot:0 (PC:0x" + key + " Valid:V "
-            PC_to = "Slot:0 (PC:0x" + nextkey + " Valid:V "
-            #print(PC_from)
-            #print(PC_to)
-            index_from = 0
-            index_to = 0
-            with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/UMode.txt', 'r') as file:
-                lines = file.readlines()
-                for line in reversed(lines):
-                    if PC_to in line:
-                        index_to = lines.index(line)
-                        break
-                for line in lines:
-                    if PC_from in line:
-                        index_from = lines.index(line)
-                        break
-                for i in range(index_from, index_to):
-                    for entry in value:
-                        str_entry = str(hex(entry))[2:]
-                        if str_entry in lines[i]:
-                            if (key + ":" + nextkey) in dict_post_processing.keys():
-                                value_temp_list = dict_post_processing[key + ":" + nextkey]
-                                value_temp_list.append(lines[i])
-                                dict_post_processing[key + ":" + nextkey] = value_temp_list
-                                list_secrets_linenumber.append(str(entry) + ": " + str(i))
-                            else:
-                                dict_post_processing[key + ":" + nextkey] = [lines[i]]
-                                list_secrets_linenumber.append(str(entry) + ": " + str(i))
-        else:
-            PC_from = "Slot:0 (PC:0x" + key + " Valid:V "
-            index_from = 0
-            with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/UMode.txt', 'r') as file:
-                lines = file.readlines()
-                for line in lines:
-                    if PC_from in line:
-                        index_from = lines.index(line)
-                        break
-                for i in range(index_from, len(lines) - 1):
-                    for entry in value:
-                        str_entry = str(hex(entry))[2:]
-                        if str_entry in lines[i]:
-                            if (key + ":" + "End") in dict_post_processing.keys():
-                                value_temp_list = dict_post_processing[key + ":" + "End"]
-                                value_temp_list.append(lines[i])
-                                dict_post_processing[key + ":" + "End"] = value_temp_list
-                                list_secrets_linenumber.append(str(entry) + ": " + str(i))
-                            else:
-                                dict_post_processing[key + ":" + "End"] = [lines[i]]
-                                list_secrets_linenumber.append(str(entry) + ": " + str(i))
-
-list_kernel_post_processing_without8 = []
-list_kernel_post_processing_just8 = []
-
-def search_kernel_secrets():
-    with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/UMode.txt','r') as file:
-        lines = file.readlines()
-        for i in range(0, len(lines) - 1):
-            for entry in list_kernel_secrets:
-                str_entry = str(hex(entry))[2:]
-                if str_entry in lines[i]:
-                    if str_entry != "88888888":
-                        list_kernel_post_processing_without8.append(lines[i])
-                        list_secrets_linenumber.append(str(entry) + ": " + str(i))
-                    else:
-                        list_kernel_post_processing_just8.append(lines[i])
-                        list_secrets_linenumber.append(str(entry) + ": " + str(i))
-
-
-if dict_label_PC:
-    print("Looking for Kernel Secrets ------------> Started!")
-    search_kernel_secrets()
-    print("Looking for Kernel Secrets ------------> Successful!")
-    print()
-    print("Looking for User Secrets ------------> Started!")
-    search_user_secrets()
-    print("Looking for User Secrets ------------> Successful!")
-else:
-    print("Looking for Kernel Secrets ------------> Started!")
-    search_kernel_secrets()
-    print("Looking for Kernel Secrets ------------> Successful!")
-with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/UserSecrets.txt', 'w') as file:
-    file.writelines(list(dict_post_processing))
-with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/KernelSecrets.txt', 'w') as file:
-    file.writelines(list_kernel_post_processing_without8)
-with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/KernelSecrets.txt', 'a') as file:
-    file.writelines(list_kernel_post_processing_just8)
-print("Done!")
 
 
 

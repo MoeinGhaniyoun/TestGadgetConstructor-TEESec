@@ -1,12 +1,63 @@
-print("Analyzer! ----------------> Started!")
+
+import re
+import os
+import sys
+
+def main():    
+    if len(sys.argv) < 3:
+        print("Please re-run the script by providing at least two arguments: [SimLog] [Secret]")
+        return 1
+
+    sim_path = sys.argv[1]
+    secret = sys.argv[2]
+    print("TEESec Checker! ----------------> Started!")
+    print("Extracting non-enclave execution cycles from log file!................")
+    # Extract Host instructions and write them in another file
+    secret_access_cycle = []
+    inside = []
+    secret_found = False
+    cycle_number = 0
+    with open(sim_path, 'r') as file:
+        log = file.readlines()
+        log_content = file.read()
+        length_log = len(log)
+        start_index = 0
+        for i in range(length_log-1, -1, -1):
+            if secret in log[i]:
+                secret_found = True
+                for j in range(i-100, i+100):
+                    secret_access_cycle.append(log[j])
+                    match = re.search(r"Cycle=\s*(\d+)", log[j])
+                    if match:
+                        cycle_number = match.group()
+                break
+
+
+    cycle_pattern = re.compile(r"Cycle=\s*(\d+)")
+    with open('./CheckerLog.txt', 'w') as file:
+        if secret_found:
+            line = "Enclave secret leakage detected!\n"
+            line += "Secret value: " + secret + "\n"
+            line += "Microarchitecture Structure: " + "Register file" + "\n"
+            line += "Sim cycle No.: " + str(cycle_number) + "\n"
+            line += "Here is a snapshot of current state of the processor:\n"
+            line += "*********************************************************\n"
+            line += "*********************************************************\n"
+            meta_info = []
+            meta_info.append(line)
+            file.writelines(meta_info + secret_access_cycle)
+        else:
+            line = "NO enclave secret detected!\n"
+            file.writelines(line)
+    print("Finished creating CheckerLog.txt!")
+    print("Done!")
+
+if __name__ == "__main__":
+    main()
 
 
 
-
-
-
-
-
+"""
 ### Check whether we have a user page secret. If not, we should add kernel default secrets to dict_label_secrets
 if not dict_label_secrets_pair:
     dict_label_secrets_pair["Kernel Secrets"] = list_kernel_secrets
@@ -15,6 +66,7 @@ if not dict_label_secrets_pair:
 dict_label_PC = {}
 dict_PC_secrets = {}
 list_secrets_linenumber = []
+
 
 print("Creating Label-PC pairs!................")
 # Create Label-PC pairs
@@ -26,36 +78,11 @@ with open('/home/ghaniyoun/ghan/chipyard/toolchains/riscv-tools/riscv-tests/isa/
             space_separated = line.split(" ")
             label = space_separated[1].strip("<>:\n")
             dict_label_PC[label] = space_separated[0][11:]
-print("Extracting User Mode cycles from log file!................")
-# Extract User Mode instructions and write them in another file
-U_Mode_Merged = []
-inside = []
-with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/log2.txt', 'r') as file:
-    inside = file.readlines()
-    length_log = len(inside)
-    start_index = 0
-    mode_check = ["Mode:U"]
-    last_line = False
-    while not last_line:
-        for i in range(start_index, length_log):
-            if i == length_log - 1:
-                last_line = True
-            if len(mode_check) == 1:
-                if mode_check[0] in inside[i]:
-                    start_index = i
-                    mode_check = ["Mode:S", "Mode:M"]
-                    break
-            else:
-                if mode_check[1] in inside[i] or mode_check[0] in inside[i]:
-                    start_index = i
-                    mode_check = ["Mode:U"]
-                    break
-            if len(mode_check) == 2:
-                U_Mode_Merged.append(inside[i])
 
-with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/UMode.txt', 'w') as file:
-    file.writelines(U_Mode_Merged)
-print("Finished creating UMode.txt!")
+"""
+
+
+"""
 # Create dictionary of PC, user secret pairs
 if dict_label_PC:
     for key, value in dict_label_secrets_pair.items():
@@ -67,7 +94,7 @@ if dict_label_PC:
 # This dictionary is responsible to hold key, value pairs consisting of 2 permission labels as keys, all lines containing
 # secrets as values
 dict_post_processing = {}
-
+"""
 
 def search_user_secrets():
     lines = []
@@ -86,7 +113,7 @@ def search_user_secrets():
             #print(PC_to)
             index_from = 0
             index_to = 0
-            with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/UMode.txt', 'r') as file:
+            with open(sim_path, 'r') as file:
                 lines = file.readlines()
                 for line in reversed(lines):
                     if PC_to in line:
@@ -111,7 +138,7 @@ def search_user_secrets():
         else:
             PC_from = "Slot:0 (PC:0x" + key + " Valid:V "
             index_from = 0
-            with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/UMode.txt', 'r') as file:
+            with open(sim_path, 'r') as file:
                 lines = file.readlines()
                 for line in lines:
                     if PC_from in line:
@@ -134,7 +161,7 @@ list_kernel_post_processing_without8 = []
 list_kernel_post_processing_just8 = []
 
 def search_kernel_secrets():
-    with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/UMode.txt','r') as file:
+    with open(sim_path,'r') as file:
         lines = file.readlines()
         for i in range(0, len(lines) - 1):
             for entry in list_kernel_secrets:
@@ -148,6 +175,8 @@ def search_kernel_secrets():
                         list_secrets_linenumber.append(str(entry) + ": " + str(i))
 
 
+
+"""
 if dict_label_PC:
     print("Looking for Kernel Secrets ------------> Started!")
     search_kernel_secrets()
@@ -166,4 +195,6 @@ with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/KernelSecrets.txt', 'w')
     file.writelines(list_kernel_post_processing_without8)
 with open('/home/ghaniyoun/ghan/chipyard/sims/verilator/KernelSecrets.txt', 'a') as file:
     file.writelines(list_kernel_post_processing_just8)
-print("Done!")
+"""
+
+
