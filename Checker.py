@@ -18,20 +18,21 @@ def main():
     secret_found = False
     cycle_number = 0
     with open(sim_path, 'r') as file:
-        log = file.readlines()
-        log_content = file.read()
-        length_log = len(log)
-        start_index = 0
-        for i in range(length_log-1, -1, -1):
-            if secret in log[i]:
+        while True:
+            log = file.readline()
+            if not log:
+                break
+            length_log = len(log)
+            start_index = 0
+            if secret in log:
                 secret_found = True
-                for j in range(i-100, i+100):
-                    secret_access_cycle.append(log[j])
-                    match = re.search(r"Cycle=\s*(\d+)", log[j])
+                for j in range(200):
+                    log = file.readline()
+                    secret_access_cycle.append(log)
+                    match = re.search(r"Cycle=\s*(\d+)", log)
                     if match:
                         cycle_number = match.group()
                 break
-
 
     cycle_pattern = re.compile(r"Cycle=\s*(\d+)")
     with open('./CheckerLog.txt', 'w') as file:
