@@ -1386,6 +1386,11 @@ def main():
             start_simulation(sim_path, test_path = test_path)
     elif access_gadget == "NO_FUZZING":
         compile_tests()
+        test_path = compile_tests()
+        if not sim_path:
+            start_simulation(test_path = test_path)
+        else:
+            start_simulation(sim_path, test_path = test_path)
     elif access_gadget == "FUZZ":
         fuzz()
     else:
