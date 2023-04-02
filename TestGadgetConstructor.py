@@ -72,7 +72,7 @@ def Create_Enc(start_addr = "0x80480000", size = "0x4000", utm_addr = "0x8048800
     line += "TEESec_enclave.params.untrusted_ptr = " + untrusted_ptr + ";\n"
     line += "TEESec_enclave.params.untrusted_size = " + untrusted_size + ";\n"
     line += "TEESec_enclave.eid_pptr = (unsigned int *)" + eid_ptr + ";\n"
-    line += "}"
+    line += "}\n"
     enclave_args.append(line)
 
     # send create enclave signal to SM
